@@ -1,0 +1,331 @@
+{
+  "config": {
+    "daily_calories": 2000,
+    "daily_protein_target_g": 100,
+    "diet_type": "vegetarian, no eggs",
+    "servings": 1,
+    "shop_ahead_days": 1
+  },
+  "pantry_staples": [
+    "salt",
+    "black salt",
+    "cooking oil",
+    "mustard oil",
+    "ghee",
+    "turmeric powder",
+    "red chili powder",
+    "coriander powder",
+    "cumin seeds",
+    "cumin powder",
+    "garam masala",
+    "black pepper",
+    "asafoetida",
+    "bay leaves",
+    "cinnamon",
+    "cloves",
+    "cardamom",
+    "dried red chilies",
+    "kasuri methi",
+    "sugar",
+    "tea leaves",
+    "baking soda",
+    "vinegar",
+    "honey"
+  ],
+  "weekly_plan": {
+    "monday": {
+      "breakfast": {
+        "name": "Oats with banana and protein powder",
+        "ingredients": [
+          {"item": "rolled oats", "qty": "50g"},
+          {"item": "banana", "qty": "1"},
+          {"item": "oat milk", "qty": "200ml"},
+          {"item": "whey protein powder", "qty": "1 scoop"}
+        ]
+      },
+      "lunch": {
+        "name": "Soya chunk curry with brown rice",
+        "ingredients": [
+          {"item": "soya chunks", "qty": "50g dry"},
+          {"item": "brown rice", "qty": "80g dry"},
+          {"item": "onion", "qty": "1 medium"},
+          {"item": "tomato", "qty": "2 medium"},
+          {"item": "green chili", "qty": "2"},
+          {"item": "ginger", "qty": "1 inch piece"},
+          {"item": "garlic", "qty": "4 cloves"},
+          {"item": "fresh coriander", "qty": "small bunch"}
+        ]
+      },
+      "snack": {
+        "name": "Greek yogurt with roasted chana",
+        "ingredients": [
+          {"item": "greek yogurt", "qty": "200g"},
+          {"item": "roasted chana", "qty": "30g"}
+        ]
+      },
+      "dinner": {
+        "name": "Paneer bhurji with multigrain roti",
+        "ingredients": [
+          {"item": "low fat paneer", "qty": "200g"},
+          {"item": "multigrain atta", "qty": "60g"},
+          {"item": "onion", "qty": "1 medium"},
+          {"item": "tomato", "qty": "1 medium"},
+          {"item": "capsicum", "qty": "1 small"},
+          {"item": "green chili", "qty": "1"}
+        ]
+      }
+    },
+    "tuesday": {
+      "breakfast": {
+        "name": "Moong dal chilla with mint chutney",
+        "ingredients": [
+          {"item": "yellow moong dal", "qty": "60g"},
+          {"item": "ginger", "qty": "1 inch piece"},
+          {"item": "green chili", "qty": "1"},
+          {"item": "mint leaves", "qty": "small bunch"},
+          {"item": "curd", "qty": "50g"}
+        ]
+      },
+      "lunch": {
+        "name": "Rajma masala with steamed rice",
+        "ingredients": [
+          {"item": "rajma", "qty": "60g dry"},
+          {"item": "basmati rice", "qty": "80g dry"},
+          {"item": "onion", "qty": "1 medium"},
+          {"item": "tomato", "qty": "2 medium"},
+          {"item": "ginger garlic paste", "qty": "1 tbsp"},
+          {"item": "fresh coriander", "qty": "small bunch"}
+        ]
+      },
+      "snack": {
+        "name": "Sprouts chaat",
+        "ingredients": [
+          {"item": "moong sprouts", "qty": "100g"},
+          {"item": "onion", "qty": "1 small"},
+          {"item": "tomato", "qty": "1 small"},
+          {"item": "lemon", "qty": "1"},
+          {"item": "sev", "qty": "20g"}
+        ]
+      },
+      "dinner": {
+        "name": "Tofu stir fry with quinoa",
+        "ingredients": [
+          {"item": "tofu", "qty": "200g"},
+          {"item": "quinoa", "qty": "70g dry"},
+          {"item": "broccoli", "qty": "100g"},
+          {"item": "bell pepper", "qty": "1"},
+          {"item": "carrot", "qty": "1"},
+          {"item": "soy sauce", "qty": "1 tbsp"},
+          {"item": "garlic", "qty": "4 cloves"}
+        ]
+      }
+    },
+    "wednesday": {
+      "breakfast": {
+        "name": "Vegetable upma with hung curd",
+        "ingredients": [
+          {"item": "sooji rava", "qty": "60g"},
+          {"item": "carrot", "qty": "1 small"},
+          {"item": "green peas", "qty": "30g"},
+          {"item": "hung curd", "qty": "100g"},
+          {"item": "curry leaves", "qty": "1 sprig"}
+        ]
+      },
+      "lunch": {
+        "name": "Chole with jeera rice",
+        "ingredients": [
+          {"item": "chole", "qty": "60g dry"},
+          {"item": "basmati rice", "qty": "80g dry"},
+          {"item": "onion", "qty": "1 medium"},
+          {"item": "tomato", "qty": "2 medium"},
+          {"item": "ginger garlic paste", "qty": "1 tbsp"},
+          {"item": "green chili", "qty": "1"}
+        ]
+      },
+      "snack": {
+        "name": "Roasted makhana and buttermilk",
+        "ingredients": [
+          {"item": "makhana", "qty": "30g"},
+          {"item": "buttermilk", "qty": "250ml"}
+        ]
+      },
+      "dinner": {
+        "name": "Paneer tikka with salad",
+        "ingredients": [
+          {"item": "low fat paneer", "qty": "200g"},
+          {"item": "curd", "qty": "100g"},
+          {"item": "bell pepper", "qty": "1"},
+          {"item": "onion", "qty": "1 medium"},
+          {"item": "cucumber", "qty": "1"},
+          {"item": "tomato", "qty": "1"},
+          {"item": "lemon", "qty": "1"}
+        ]
+      }
+    },
+    "thursday": {
+      "breakfast": {
+        "name": "Besan chilla with tomato chutney",
+        "ingredients": [
+          {"item": "besan", "qty": "60g"},
+          {"item": "onion", "qty": "1 small"},
+          {"item": "tomato", "qty": "2 medium"},
+          {"item": "green chili", "qty": "1"},
+          {"item": "curd", "qty": "50g"}
+        ]
+      },
+      "lunch": {
+        "name": "Moong dal tadka with brown rice and mushroom sabzi",
+        "ingredients": [
+          {"item": "yellow moong dal", "qty": "80g dry"},
+          {"item": "brown rice", "qty": "80g dry"},
+          {"item": "mushroom", "qty": "150g"},
+          {"item": "onion", "qty": "1 medium"},
+          {"item": "tomato", "qty": "1 medium"},
+          {"item": "garlic", "qty": "4 cloves"}
+        ]
+      },
+      "snack": {
+        "name": "Protein smoothie",
+        "ingredients": [
+          {"item": "whey protein powder", "qty": "1 scoop"},
+          {"item": "banana", "qty": "1"},
+          {"item": "peanut butter", "qty": "1 tbsp"},
+          {"item": "toned milk", "qty": "200ml"}
+        ]
+      },
+      "dinner": {
+        "name": "Paneer and vegetable roti wrap",
+        "ingredients": [
+          {"item": "low fat paneer", "qty": "150g"},
+          {"item": "multigrain atta", "qty": "60g"},
+          {"item": "capsicum", "qty": "1"},
+          {"item": "onion", "qty": "1 medium"},
+          {"item": "mint leaves", "qty": "small bunch"}
+        ]
+      }
+    },
+    "friday": {
+      "breakfast": {
+        "name": "Oats idli with sambar",
+        "ingredients": [
+          {"item": "rolled oats", "qty": "50g"},
+          {"item": "curd", "qty": "100g"},
+          {"item": "toor dal", "qty": "40g"},
+          {"item": "carrot", "qty": "1 small"},
+          {"item": "drumstick", "qty": "1"}
+        ]
+      },
+      "lunch": {
+        "name": "Masoor dal with brown rice and bhindi sabzi",
+        "ingredients": [
+          {"item": "masoor dal", "qty": "80g dry"},
+          {"item": "brown rice", "qty": "80g dry"},
+          {"item": "bhindi", "qty": "150g"},
+          {"item": "onion", "qty": "1 medium"},
+          {"item": "tomato", "qty": "1 medium"}
+        ]
+      },
+      "snack": {
+        "name": "Sprouts and peanut salad",
+        "ingredients": [
+          {"item": "moong sprouts", "qty": "100g"},
+          {"item": "roasted peanuts", "qty": "30g"},
+          {"item": "lemon", "qty": "1"},
+          {"item": "onion", "qty": "1 small"}
+        ]
+      },
+      "dinner": {
+        "name": "Soya chunk pulao with raita",
+        "ingredients": [
+          {"item": "soya chunks", "qty": "50g dry"},
+          {"item": "basmati rice", "qty": "80g dry"},
+          {"item": "curd", "qty": "150g"},
+          {"item": "carrot", "qty": "1"},
+          {"item": "green peas", "qty": "50g"},
+          {"item": "onion", "qty": "1 medium"}
+        ]
+      }
+    },
+    "saturday": {
+      "breakfast": {
+        "name": "Paneer paratha with curd",
+        "ingredients": [
+          {"item": "low fat paneer", "qty": "100g"},
+          {"item": "multigrain atta", "qty": "60g"},
+          {"item": "curd", "qty": "100g"},
+          {"item": "green chili", "qty": "1"}
+        ]
+      },
+      "lunch": {
+        "name": "Mushroom and soya keema with roti",
+        "ingredients": [
+          {"item": "mushroom", "qty": "150g"},
+          {"item": "soya chunks", "qty": "50g dry"},
+          {"item": "multigrain atta", "qty": "60g"},
+          {"item": "onion", "qty": "1 medium"},
+          {"item": "tomato", "qty": "2 medium"},
+          {"item": "ginger garlic paste", "qty": "1 tbsp"}
+        ]
+      },
+      "snack": {
+        "name": "Greek yogurt with mixed nuts",
+        "ingredients": [
+          {"item": "greek yogurt", "qty": "200g"},
+          {"item": "mixed nuts", "qty": "30g"}
+        ]
+      },
+      "dinner": {
+        "name": "Tofu and vegetable stir fry with quinoa",
+        "ingredients": [
+          {"item": "tofu", "qty": "200g"},
+          {"item": "quinoa", "qty": "70g dry"},
+          {"item": "broccoli", "qty": "100g"},
+          {"item": "baby corn", "qty": "100g"},
+          {"item": "soy sauce", "qty": "1 tbsp"},
+          {"item": "garlic", "qty": "4 cloves"}
+        ]
+      }
+    },
+    "sunday": {
+      "breakfast": {
+        "name": "Stuffed paneer sandwich",
+        "ingredients": [
+          {"item": "low fat paneer", "qty": "100g"},
+          {"item": "multigrain bread", "qty": "4 slices"},
+          {"item": "capsicum", "qty": "1 small"},
+          {"item": "onion", "qty": "1 small"},
+          {"item": "tomato", "qty": "1 small"}
+        ]
+      },
+      "lunch": {
+        "name": "Chole with brown rice and cucumber raita",
+        "ingredients": [
+          {"item": "chole", "qty": "60g dry"},
+          {"item": "brown rice", "qty": "80g dry"},
+          {"item": "curd", "qty": "150g"},
+          {"item": "cucumber", "qty": "1"},
+          {"item": "onion", "qty": "1 medium"},
+          {"item": "tomato", "qty": "2 medium"}
+        ]
+      },
+      "snack": {
+        "name": "Roasted chana and buttermilk",
+        "ingredients": [
+          {"item": "roasted chana", "qty": "40g"},
+          {"item": "buttermilk", "qty": "250ml"}
+        ]
+      },
+      "dinner": {
+        "name": "Rajma and paneer mixed curry with roti",
+        "ingredients": [
+          {"item": "rajma", "qty": "40g dry"},
+          {"item": "low fat paneer", "qty": "100g"},
+          {"item": "multigrain atta", "qty": "60g"},
+          {"item": "onion", "qty": "1 medium"},
+          {"item": "tomato", "qty": "2 medium"},
+          {"item": "fresh coriander", "qty": "small bunch"}
+        ]
+      }
+    }
+  }
+}

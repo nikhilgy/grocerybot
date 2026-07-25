@@ -1,0 +1,18 @@
+[project]
+name = "grocerybot"
+version = "0.1.0"
+description = "Personal Telegram bot: fridge photo -> diet gap analysis -> Swiggy Instamart order"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn[standard]==0.34.0",
+    "python-telegram-bot==21.10",
+    "httpx==0.28.1",
+    "anthropic==0.45.2",
+    "mcp==1.9.4",
+    "pydantic==2.10.5",
+    "python-dotenv==1.0.1",
+    "groq==1.6.0",
+    "aiosqlite==0.22.1",
+    "yt-dlp>=2024.12.1",
+]
