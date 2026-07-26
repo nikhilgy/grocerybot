@@ -28,6 +28,7 @@ telegram_app: Application = Application.builder().token(config.BOT_TOKEN).build(
 telegram_app.add_handler(CommandHandler("start", handlers.cmd_start))
 telegram_app.add_handler(CommandHandler("help", handlers.cmd_help))
 telegram_app.add_handler(CommandHandler("restock", handlers.cmd_restock))
+telegram_app.add_handler(CommandHandler("address", handlers.cmd_address))
 telegram_app.add_handler(CommandHandler("history", handlers.cmd_history))
 telegram_app.add_handler(CommandHandler("spend", handlers.cmd_spend))
 telegram_app.add_handler(CommandHandler("zones", handlers.cmd_zones))

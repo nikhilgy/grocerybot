@@ -3,10 +3,13 @@ from __future__ import annotations
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+from app.instamart.mcp_client import Address
 from app.instamart.product_mapper import MappedProduct
 
 REMOVE_PREFIX = "cart_remove:"
 CANCEL_ACTION = "cart_cancel"
+CART_EDIT_ACTION = "cart_edit"
+CART_DONE_ACTION = "cart_done"
 DUPLICATE_ADD_ACTION = "dup_add"
 DUPLICATE_SKIP_ACTION = "dup_skip"
 INSTAMART_URL = "https://www.swiggy.com/instamart"
@@ -14,6 +17,7 @@ INSTAMART_URL = "https://www.swiggy.com/instamart"
 # --- Phase 2 conversation-flow callback data -------------------------------
 
 ZONE_PICK_PREFIX = "zone_pick:"
+ADDRESS_PICK_PREFIX = "addr_pick:"
 SERVINGS_PREFIX = "servings:"
 GUEST_MEAL_PREFIX = "guestmeal:"
 
@@ -30,24 +34,38 @@ INV_CONFIRM_CANCEL = "invconf_cancel"
 VOICE_CONFIRM_YES = "voiceconf_yes"
 VOICE_CONFIRM_RETYPE = "voiceconf_retype"
 
+PHOTO_ANALYZE = "photo_analyze"
+PHOTO_CLEAR = "photo_clear"
+
 
 def cart_summary_keyboard(mapped_products: list[MappedProduct]) -> InlineKeyboardMarkup:
-    """One remove row per item, plus an open-app row and a cancel row.
+    """Clean main cart view: open-app, plus an Edit-items / Cancel row.
+
+    Removing items lives behind "Edit items" (a compact numbered grid) so the
+    main view isn't dominated by one remove button per item.
 
     Checkout happens in the Swiggy app itself (so the user can pay with a
     saved card) rather than via the bot — the cart built through MCP syncs
     to the app's account cart, so opening the app shows the same items.
     """
-    rows = [
-        [
-            InlineKeyboardButton(
-                f"❌ Remove {p.name}", callback_data=f"{REMOVE_PREFIX}{p.spin_id}"
-            )
-        ]
-        for p in mapped_products
+    rows = [[InlineKeyboardButton("🛍️ Open cart in Swiggy app", url=INSTAMART_URL)]]
+    edit_cancel_row = []
+    if mapped_products:
+        edit_cancel_row.append(InlineKeyboardButton("✏️ Edit items", callback_data=CART_EDIT_ACTION))
+    edit_cancel_row.append(InlineKeyboardButton("🚫 Cancel", callback_data=CANCEL_ACTION))
+    rows.append(edit_cancel_row)
+    return InlineKeyboardMarkup(rows)
+
+
+def cart_edit_keyboard(mapped_products: list[MappedProduct]) -> InlineKeyboardMarkup:
+    """Compact grid of numbered remove buttons (4 per row) matching the numbered
+    item list in the cart message, plus a Done button back to the main view."""
+    buttons = [
+        InlineKeyboardButton(f"❌ {i}", callback_data=f"{REMOVE_PREFIX}{p.spin_id}")
+        for i, p in enumerate(mapped_products, start=1)
     ]
-    rows.append([InlineKeyboardButton("🛍️ Open cart in Swiggy app", url=INSTAMART_URL)])
-    rows.append([InlineKeyboardButton("🚫 Cancel", callback_data=CANCEL_ACTION)])
+    rows = [buttons[i : i + 4] for i in range(0, len(buttons), 4)]
+    rows.append([InlineKeyboardButton("⬅️ Done", callback_data=CART_DONE_ACTION)])
     return InlineKeyboardMarkup(rows)
 
 
@@ -81,6 +99,19 @@ def zone_picker_keyboard(zones: list[tuple[str, str]]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
+def address_picker_keyboard(addresses: list[Address]) -> InlineKeyboardMarkup:
+    """One button per saved Swiggy address, keyed by address_id."""
+    rows = []
+    for a in addresses:
+        label = a.label or a.full_address or a.address_id
+        if len(label) > 60:
+            label = label[:57] + "…"
+        rows.append(
+            [InlineKeyboardButton(label, callback_data=f"{ADDRESS_PICK_PREFIX}{a.address_id}")]
+        )
+    return InlineKeyboardMarkup(rows)
+
+
 def servings_keyboard(options: list[int] = [1, 2, 3, 4, 6]) -> InlineKeyboardMarkup:
     row = [InlineKeyboardButton(str(n), callback_data=f"{SERVINGS_PREFIX}{n}") for n in options]
     return InlineKeyboardMarkup([row, [InlineKeyboardButton("Other", callback_data=f"{SERVINGS_PREFIX}other")]])
@@ -94,6 +125,16 @@ def guest_meal_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton("Dinner", callback_data=f"{GUEST_MEAL_PREFIX}dinner"),
                 InlineKeyboardButton("Both", callback_data=f"{GUEST_MEAL_PREFIX}both"),
             ]
+        ]
+    )
+
+
+def photo_tray_keyboard(count: int) -> InlineKeyboardMarkup:
+    """Scan-tray controls: analyze the buffered photos as one batch, or clear them."""
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(f"✅ Analyze ({count})", callback_data=PHOTO_ANALYZE)],
+            [InlineKeyboardButton("🗑️ Clear", callback_data=PHOTO_CLEAR)],
         ]
     )
 
@@ -152,6 +193,10 @@ def _parse_prefixed(data: str, prefix: str) -> str | None:
 
 def parse_zone_pick_callback(data: str) -> str | None:
     return _parse_prefixed(data, ZONE_PICK_PREFIX)
+
+
+def parse_address_pick_callback(data: str) -> str | None:
+    return _parse_prefixed(data, ADDRESS_PICK_PREFIX)
 
 
 def parse_servings_callback(data: str) -> str | None:

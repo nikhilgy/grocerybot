@@ -161,7 +161,7 @@ async def analyze_gap(
     try:
         response = await _client.messages.create(
             model=config.CLAUDE_TEXT_MODEL,
-            max_tokens=2048,
+            max_tokens=4096,
             system=SYSTEM_PROMPT,
             messages=[
                 {
@@ -174,6 +174,7 @@ async def analyze_gap(
         logger.exception("Claude gap analysis request failed")
         raise
 
+    _guard_truncation(response, "gap analysis")
     text = "".join(block.text for block in response.content if hasattr(block, "text"))
     data = _extract_json(text)
     return GapAnalysis(**data)
@@ -198,7 +199,7 @@ async def analyze_gap_for_needed_items(
     try:
         response = await _client.messages.create(
             model=config.CLAUDE_TEXT_MODEL,
-            max_tokens=2048,
+            max_tokens=4096,
             system=RECIPE_GAP_SYSTEM_PROMPT,
             messages=[
                 {
@@ -211,6 +212,7 @@ async def analyze_gap_for_needed_items(
         logger.exception("Claude recipe gap analysis request failed")
         raise
 
+    _guard_truncation(response, "recipe gap analysis")
     text = "".join(block.text for block in response.content if hasattr(block, "text"))
     data = _extract_json(text)
     return GapAnalysis(**data)
@@ -244,10 +246,31 @@ async def full_restock_list(reference_date: Optional[datetime] = None) -> GapAna
     return GapAnalysis(tomorrow=day_name, meals=meal_names, shopping_list=shopping_list)
 
 
+def _guard_truncation(response, label: str) -> None:
+    """A response cut off at the token cap yields JSON that's missing its
+    closing brackets — json.loads then fails with a confusing "Expecting ','
+    delimiter" deep in the text. Fail early with a clear message instead."""
+    if getattr(response, "stop_reason", None) == "max_tokens":
+        logger.error("Claude %s response truncated at max_tokens; increase the limit", label)
+        raise ValueError(f"{label} response was truncated (max_tokens reached)")
+
+
 def _extract_json(text: str) -> dict:
     text = text.strip()
+    # Strip a ```json ... ``` (or bare ```) fence if the model wrapped its output.
+    if text.startswith("```"):
+        text = text.split("```", 2)[1] if text.count("```") >= 2 else text.strip("`")
+        if text.startswith("json"):
+            text = text[4:]
+        text = text.strip()
     start = text.find("{")
     end = text.rfind("}")
     if start == -1 or end == -1:
         raise ValueError(f"No JSON object found in Claude response: {text!r}")
-    return json.loads(text[start : end + 1])
+    try:
+        return json.loads(text[start : end + 1])
+    except json.JSONDecodeError:
+        # Log the raw payload so a malformed/truncated response is diagnosable
+        # instead of surfacing only the opaque decoder error.
+        logger.error("Failed to parse JSON from Claude response: %r", text)
+        raise

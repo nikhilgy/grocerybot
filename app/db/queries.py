@@ -70,6 +70,30 @@ async def delete_zone(zone_id: str) -> bool:
     return cursor.rowcount > 0
 
 
+# --- Settings (key/value) --------------------------------------------------
+
+DELIVERY_ADDRESS_KEY = "delivery_address_id"
+
+
+async def get_setting(key: str) -> Optional[str]:
+    db = await get_db()
+    async with db.execute("SELECT value FROM settings WHERE key = ?", (key,)) as cursor:
+        row = await cursor.fetchone()
+    return row["value"] if row else None
+
+
+async def set_setting(key: str, value: str) -> None:
+    db = await get_db()
+    await db.execute(
+        """
+        INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+        """,
+        (key, value, datetime.now().isoformat()),
+    )
+    await db.commit()
+
+
 async def save_inventory(zone_id: str, items: list[dict], scanned_at: Optional[datetime] = None) -> None:
     """Full replacement: deletes all existing rows for this zone, inserts the new set."""
     scanned_at = scanned_at or datetime.now()

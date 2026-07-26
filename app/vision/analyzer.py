@@ -20,7 +20,15 @@ may show a single storage area (e.g. just the fridge) or several different areas
 (e.g. the fridge AND the masala rack). The user message will list the known kitchen zone ids you can
 choose from (e.g. "fridge", "freezer", "pantry", "dal_shelf", "masala_rack", "countertop").
 
-Your job is to group everything you see into zones and, for each zone, identify every food item visible.
+Your job is to group everything you see into zones and, for each zone, identify grocery items visible —
+specifically, items a user could plausibly reorder from a quick-commerce app like Swiggy Instamart, Blinkit,
+or Zepto. This means packaged/branded grocery products (dairy, snacks, sauces, condiments, spices, beverages,
+staples like atta/rice/dal in packaging) and common raw produce (vegetables, fruits, herbs).
+
+Do NOT report:
+- Cooked/prepared/leftover food (home-cooked dishes, cooked dal/chana, leftovers in bowls)
+- Plain/unbranded water (tap water bottles, ice, ice trays)
+- Unidentifiable miscellaneous containers or clutter that isn't a recognizable grocery item
 
 For each zone group:
 - "detected_zone": the id of the zone this group of items belongs to, from the known zones list. A fridge
@@ -157,13 +165,19 @@ async def analyze_photos(images: list[bytes], known_zones: list[tuple[str, str]]
     try:
         response = await _client.messages.create(
             model=config.CLAUDE_VISION_MODEL,
-            max_tokens=2048,
+            max_tokens=8192,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": content}],
         )
     except Exception:
         logger.exception("Claude Vision request failed")
         raise
+
+    # A truncated response (hit the token cap) yields invalid JSON further down;
+    # fail with a clear message instead of a confusing JSONDecodeError.
+    if response.stop_reason == "max_tokens":
+        logger.error("Claude Vision response truncated at max_tokens; increase the limit")
+        raise ValueError("Vision response was truncated (max_tokens reached)")
 
     text = "".join(block.text for block in response.content if hasattr(block, "text"))
     data = _extract_json(text)

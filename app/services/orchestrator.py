@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal, Optional
@@ -32,7 +33,7 @@ from app.bot.copy import HELP_TEXT
 from app.db import queries
 from app.db.models import StoredInventoryItem, Zone, ZoneStaleness
 from app.instamart import cart_manager
-from app.instamart.mcp_client import SwiggyMCPError, client as mcp_client
+from app.instamart.mcp_client import Address, SwiggyMCPError, client as mcp_client
 from app.instamart.product_mapper import MappedProduct, UnavailableItem, map_shopping_list
 from app.nlu.correction_interpreter import interpret_correction
 from app.nlu.intent_classifier import Intent, classify_intent
@@ -56,6 +57,9 @@ class PendingCart:
     day_name: str
     mapped_products: list[MappedProduct]
     unavailable: list[UnavailableItem] = field(default_factory=list)
+    # Items we asked Swiggy to add but it silently left out of the real cart
+    # (out of stock / not serviceable / quantity cap at commit time).
+    dropped: list[MappedProduct] = field(default_factory=list)
 
 
 @dataclass
@@ -206,6 +210,13 @@ def _format_cart_message(pending: PendingCart) -> str:
         lines.append("")
         lines.append(f"⚠️ Not available: {unavailable_str}")
 
+    if pending.dropped:
+        dropped_str = ", ".join(f"{p.name} × {p.units}" for p in pending.dropped)
+        lines.append("")
+        lines.append(
+            f"⚠️ Couldn't add (out of stock / not serviceable): {dropped_str}"
+        )
+
     lines.append("")
     lines.append("👉 This cart is synced to your Swiggy account — open the app below to review and pay.")
 
@@ -246,8 +257,18 @@ async def _reconcile_cart_state(bot: Bot, chat_id: int) -> None:
         )
 
 
+async def _commit_cart(
+    products: list[MappedProduct], address_id: str
+) -> tuple[list[MappedProduct], list[MappedProduct]]:
+    """Push products to Swiggy's cart and reconcile against what it actually
+    committed. Returns (accepted, dropped); raises SwiggyMCPError on failure."""
+    real_cart = await cart_manager.build_cart(products, mcp_client, address_id)
+    return cart_manager.reconcile(products, real_cart)
+
+
 async def _merge_and_confirm(
-    bot: Bot, chat_id: int, day_name: str, mapped: list[MappedProduct], unavailable: list[UnavailableItem]
+    bot: Bot, chat_id: int, day_name: str, mapped: list[MappedProduct],
+    unavailable: list[UnavailableItem], address_id: str,
 ) -> None:
     existing = CART_STATE.get(chat_id)
     existing_by_spin = {p.spin_id: p for p in existing.mapped_products} if existing else {}
@@ -271,7 +292,7 @@ async def _merge_and_confirm(
     if brand_new:
         merged_products = (existing.mapped_products if existing else []) + brand_new
         try:
-            await cart_manager.build_cart(merged_products, mcp_client, config.DELIVERY_ADDRESS_ID)
+            accepted, dropped = await _commit_cart(merged_products, address_id)
         except SwiggyMCPError:
             logger.exception("Failed to build cart")
             await _send(
@@ -281,10 +302,26 @@ async def _merge_and_confirm(
             )
             return
 
-        pending = PendingCart(day_name=day_name, mapped_products=merged_products, unavailable=unavailable)
+        if not accepted:
+            # Swiggy dropped everything we tried to add — don't leave a stale
+            # pending cart pointing at an empty Swiggy cart.
+            CART_STATE.pop(chat_id, None)
+            DUPLICATE_STATE.pop(chat_id, None)
+            names = ", ".join(f"{p.name} × {p.units}" for p in dropped)
+            await _send(
+                bot,
+                chat_id,
+                f"❌ Swiggy couldn't add any of those to your cart right now "
+                f"(out of stock / not serviceable): {names}",
+            )
+            return
+
+        pending = PendingCart(
+            day_name=day_name, mapped_products=accepted, unavailable=unavailable, dropped=dropped
+        )
         CART_STATE[chat_id] = pending
         text = _format_cart_message(pending)
-        await _send(bot, chat_id, text, reply_markup=keyboards.cart_summary_keyboard(merged_products))
+        await _send(bot, chat_id, text, reply_markup=keyboards.cart_summary_keyboard(accepted))
     elif unavailable:
         names = ", ".join(f"{u.item_name} ({u.qty})" for u in unavailable)
         await _send(bot, chat_id, f"⚠️ Not available: {names}")
@@ -305,13 +342,17 @@ async def _map_and_confirm(bot: Bot, chat_id: int, gap: GapAnalysis) -> None:
             await _send(bot, chat_id, "✅ You're all stocked up for tomorrow! Nothing to order.")
         return
 
-    if not config.DELIVERY_ADDRESS_ID:
-        await _send(bot, chat_id, "⚠️ No delivery address configured (DELIVERY_ADDRESS_ID). Can't search Instamart.")
+    address_id = await _get_selected_address_id()
+    if not address_id:
+        # No delivery address chosen yet — prompt once, then resume this request.
+        addresses = await _fetch_addresses_or_notify(bot, chat_id)
+        if addresses is not None:
+            await _prompt_address_pick(bot, chat_id, addresses, resume_gap=gap)
         return
 
     try:
         mapped, unavailable = await map_shopping_list(
-            [item.model_dump() for item in gap.shopping_list], mcp_client, config.DELIVERY_ADDRESS_ID
+            [item.model_dump() for item in gap.shopping_list], mcp_client, address_id
         )
     except SwiggyMCPError:
         logger.exception("Product mapping failed")
@@ -322,7 +363,80 @@ async def _map_and_confirm(bot: Bot, chat_id: int, gap: GapAnalysis) -> None:
         )
         return
 
-    await _merge_and_confirm(bot, chat_id, gap.tomorrow, mapped, unavailable)
+    await _merge_and_confirm(bot, chat_id, gap.tomorrow, mapped, unavailable, address_id)
+
+
+# --------------------------------------------------------------------------
+# Delivery address selection
+# --------------------------------------------------------------------------
+
+async def _get_selected_address_id() -> Optional[str]:
+    return await queries.get_setting(queries.DELIVERY_ADDRESS_KEY)
+
+
+async def _fetch_addresses_or_notify(bot: Bot, chat_id: int) -> Optional[list[Address]]:
+    """Fetches the account's saved Swiggy addresses. Sends a user-facing message
+    and returns None if there are none or Swiggy is unreachable."""
+    try:
+        addresses = await mcp_client.get_addresses()
+    except SwiggyMCPError:
+        logger.exception("Failed to fetch addresses")
+        await _send(bot, chat_id, "⚠️ Can't reach Swiggy right now. Please try again in a moment.")
+        return None
+    if not addresses:
+        await _send(
+            bot,
+            chat_id,
+            "📭 You don't have any saved addresses. Add one in the Swiggy app first, then run /address.",
+        )
+        return None
+    return addresses
+
+
+async def _prompt_address_pick(
+    bot: Bot, chat_id: int, addresses: list[Address], resume_gap: Optional[GapAnalysis]
+) -> None:
+    FLOW_STATE[chat_id] = PendingFlow(
+        kind="address_pick",
+        chat_id=chat_id,
+        created_at=datetime.now(),
+        payload={"addresses": [a.model_dump() for a in addresses], "resume_gap": resume_gap},
+    )
+    await _send(
+        bot,
+        chat_id,
+        "📍 Where should I deliver? Pick an address:",
+        reply_markup=keyboards.address_picker_keyboard(addresses),
+    )
+
+
+async def set_delivery_address(bot: Bot, chat_id: int) -> None:
+    """/address command: list saved Swiggy addresses and let the user pick a default."""
+    addresses = await _fetch_addresses_or_notify(bot, chat_id)
+    if addresses is None:
+        return
+    await _prompt_address_pick(bot, chat_id, addresses, resume_gap=None)
+
+
+async def address_picked(bot: Bot, chat_id: int, address_id: str) -> None:
+    flow = FLOW_STATE.get(chat_id)
+    resume_gap: Optional[GapAnalysis] = None
+    label = address_id
+    if flow and flow.kind == "address_pick":
+        for a in flow.payload.get("addresses", []):
+            if a.get("address_id") == address_id:
+                label = a.get("label") or a.get("full_address") or address_id
+                break
+        resume_gap = flow.payload.get("resume_gap")
+    FLOW_STATE.pop(chat_id, None)
+
+    await queries.set_setting(queries.DELIVERY_ADDRESS_KEY, address_id)
+
+    if resume_gap is not None:
+        # The user was mid-order when we asked — pick up where they left off.
+        await _map_and_confirm(bot, chat_id, resume_gap)
+    else:
+        await _send(bot, chat_id, f"✅ Delivery address set to {label}.")
 
 
 # --------------------------------------------------------------------------
@@ -384,7 +498,7 @@ async def process_fridge_photos(bot: Bot, chat_id: int, images: list[bytes]) -> 
         await _prompt_zone_pick(bot, chat_id)
         return
 
-    batch_zone_ids = {g.detected_zone for g in resolved_groups}
+    batch_zone_ids = list(dict.fromkeys(g.detected_zone for g in resolved_groups))
     await _finish_zone_save(bot, chat_id, batch_zone_ids, running_low_items)
 
 
@@ -428,18 +542,17 @@ async def zone_picked(bot: Bot, chat_id: int, zone_id: str) -> None:
         await _prompt_zone_pick(bot, chat_id)
         return
 
-    batch_zone_ids = set(flow.payload["batch_zone_ids"])
+    batch_zone_ids = list(dict.fromkeys(flow.payload["batch_zone_ids"]))
     all_running_low = flow.payload["running_low_items"]
     FLOW_STATE.pop(chat_id, None)
     await _finish_zone_save(bot, chat_id, batch_zone_ids, all_running_low)
 
 
 async def _save_zone_groups(bot: Bot, chat_id: int, groups: list[ZoneGroup]) -> list[dict]:
-    """Persists each zone group's items, sends the per-zone "found" message,
-    and collects any low/critical items for the (deferred, combined) running-low alert."""
+    """Persists each zone group's items and collects any low/critical items for the
+    (deferred, combined) running-low alert. The per-zone "found" text is no longer
+    sent here — a single consolidated summary is sent from `_finish_zone_save`."""
     now = datetime.now()
-    zones = await queries.get_zones()
-    zone_names = {z.id: z.display_name for z in zones}
     running_low_items: list[dict] = []
 
     for group in groups:
@@ -458,13 +571,6 @@ async def _save_zone_groups(bot: Bot, chat_id: int, groups: list[ZoneGroup]) -> 
         # empty, not keep showing last week's contents).
         await queries.save_inventory(group.detected_zone, items_payload, scanned_at=now)
 
-        display_name = zone_names.get(group.detected_zone, group.detected_zone)
-        if group.items:
-            item_lines = ", ".join(f"{i.name} {i.quantity}" if i.quantity else i.name for i in group.items)
-            await _send(bot, chat_id, f"📸 <b>{display_name}</b> — I found: {item_lines}")
-        else:
-            await _send(bot, chat_id, f"📸 <b>{display_name}</b> — looks empty.")
-
         for item in group.items:
             if item.stock_level in ("low", "critical"):
                 running_low_items.append(
@@ -474,7 +580,46 @@ async def _save_zone_groups(bot: Bot, chat_id: int, groups: list[ZoneGroup]) -> 
     return running_low_items
 
 
-async def _finish_zone_save(bot: Bot, chat_id: int, batch_zone_ids: set[str], running_low_items: list[dict]) -> None:
+async def _send_inventory_summary(bot: Bot, chat_id: int, batch_zone_ids: list[str]) -> None:
+    """One consolidated "here's what you currently have" message covering every
+    zone touched by this scan, in scan order, read from the persisted inventory."""
+    if not batch_zone_ids:
+        return
+
+    zones = await queries.get_zones()
+    zone_names = {z.id: z.display_name for z in zones}
+    flat = await queries.get_all_inventory_flat()
+    by_zone: dict[str, list] = defaultdict(list)
+    for item in flat:
+        if item.zone_id in batch_zone_ids:
+            by_zone[item.zone_id].append(item)
+
+    lines = ["📸 Here's what you currently have:", ""]
+    for zone_id in batch_zone_ids:
+        display_name = zone_names.get(zone_id, zone_id)
+        icon = ZONE_EMOJI.get(zone_id, "•")
+        items = by_zone.get(zone_id, [])
+        if items:
+            lines.append(f"{icon} <b>{display_name}</b>")
+            for i in items:
+                lines.append(f"  • {_render_summary_item(i)}")
+        else:
+            lines.append(f"{icon} <b>{display_name}</b> — looks empty")
+        lines.append("")
+
+    await _send(bot, chat_id, "\n".join(lines).rstrip())
+
+
+def _render_summary_item(item) -> str:
+    name = f"{item.item_name} {item.quantity}".strip() if item.quantity else item.item_name
+    if item.stock_level in ("low", "critical"):
+        name += f" ({item.stock_level})"
+    return name
+
+
+async def _finish_zone_save(bot: Bot, chat_id: int, batch_zone_ids: list[str], running_low_items: list[dict]) -> None:
+    await _send_inventory_summary(bot, chat_id, batch_zone_ids)
+
     if running_low_items:
         await _send_running_low_alert(bot, chat_id, running_low_items)
 
@@ -640,7 +785,7 @@ def _format_inventory_confirmation(
         lines.append("  Nothing — you're all set!")
     else:
         for item in gap.shopping_list:
-            lines.append(f"  • {item.item} {item.qty} — {item.reason}")
+            lines.append(f"  • {item.item} {item.qty}".rstrip())
     lines.append("")
     lines.append("Does this look right?")
     return "\n".join(lines)
@@ -1231,7 +1376,27 @@ async def cancel_order(bot: Bot, chat_id: int) -> None:
     await _send(bot, chat_id, "🚫 Order cancelled.")
 
 
-async def remove_item_from_cart(bot: Bot, chat_id: int, spin_id: str) -> None:
+async def show_cart_edit(bot: Bot, chat_id: int, query: CallbackQuery) -> None:
+    pending = CART_STATE.get(chat_id)
+    if not pending or not pending.mapped_products:
+        await query.answer("Nothing to edit.")
+        return
+    await query.edit_message_reply_markup(
+        reply_markup=keyboards.cart_edit_keyboard(pending.mapped_products)
+    )
+
+
+async def cart_edit_done(bot: Bot, chat_id: int, query: CallbackQuery) -> None:
+    pending = CART_STATE.get(chat_id)
+    if not pending:
+        await query.answer("No pending order.")
+        return
+    await query.edit_message_reply_markup(
+        reply_markup=keyboards.cart_summary_keyboard(pending.mapped_products)
+    )
+
+
+async def remove_item_from_cart(bot: Bot, chat_id: int, spin_id: str, query: CallbackQuery) -> None:
     pending = CART_STATE.get(chat_id)
     if not pending:
         await _send(bot, chat_id, "⚠️ No pending order to edit.")
@@ -1250,15 +1415,20 @@ async def remove_item_from_cart(bot: Bot, chat_id: int, spin_id: str) -> None:
         return
 
     try:
-        await cart_manager.build_cart(remaining, mcp_client, config.DELIVERY_ADDRESS_ID)
+        accepted, dropped = await _commit_cart(remaining, await _get_selected_address_id())
     except SwiggyMCPError:
         logger.exception("Failed to rebuild cart after removal")
         await _send(bot, chat_id, "⚠️ Can't reach Swiggy right now. Please try again in a moment.")
         return
 
-    pending.mapped_products = remaining
-    text = _format_cart_message(pending)
-    await _send(bot, chat_id, text, reply_markup=keyboards.cart_summary_keyboard(remaining))
+    pending.mapped_products = accepted
+    pending.dropped = dropped
+    # Stay in the edit grid so the user can remove more; numbering re-flows.
+    await query.edit_message_text(
+        _format_cart_message(pending),
+        parse_mode=ParseMode.HTML,
+        reply_markup=keyboards.cart_edit_keyboard(accepted),
+    )
 
 
 async def confirm_duplicate_additions(bot: Bot, chat_id: int) -> None:
@@ -1288,14 +1458,18 @@ async def confirm_duplicate_additions(bot: Bot, chat_id: int) -> None:
     existing.mapped_products = list(by_spin.values())
 
     try:
-        await cart_manager.build_cart(existing.mapped_products, mcp_client, config.DELIVERY_ADDRESS_ID)
+        accepted, dropped = await _commit_cart(
+            existing.mapped_products, await _get_selected_address_id()
+        )
     except SwiggyMCPError:
         logger.exception("Failed to rebuild cart after duplicate merge")
         await _send(bot, chat_id, "⚠️ Can't reach Swiggy right now. Please try again in a moment.")
         return
 
+    existing.mapped_products = accepted
+    existing.dropped = dropped
     text = _format_cart_message(existing)
-    await _send(bot, chat_id, text, reply_markup=keyboards.cart_summary_keyboard(existing.mapped_products))
+    await _send(bot, chat_id, text, reply_markup=keyboards.cart_summary_keyboard(accepted))
 
 
 async def skip_duplicate_additions(bot: Bot, chat_id: int) -> None:

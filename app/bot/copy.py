@@ -15,6 +15,7 @@ HELP_TEXT = """<b>GroceryBot commands</b>
 /start — Welcome message
 /help — This list
 /restock — Order everything needed for tomorrow's meals (no photo needed)
+/address — Choose which saved Swiggy address to deliver to
 /history — Recent Instamart orders
 /spend — Weekly spending summary
 /zones — List your kitchen zones and when each was last scanned

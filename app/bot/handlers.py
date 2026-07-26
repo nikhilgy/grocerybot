@@ -1,7 +1,6 @@
 """Telegram update routing: commands, photos, voice notes, quick-add text, callbacks."""
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import logging
 import re
@@ -24,23 +23,27 @@ from app.services import orchestrator
 
 logger = logging.getLogger(__name__)
 
-# --- Photo batching state (per chat_id) -----------------------------------
+# --- Photo scan tray (per chat_id) ----------------------------------------
+#
+# Photos accumulate in a per-chat "scan tray" and are only analyzed when the
+# user taps ✅ Analyze. Time can't tell "walking to the next shelf" apart from
+# "done", so batching is driven entirely by the user's explicit intent.
 
 _photo_buffers: dict[int, list[bytes]] = defaultdict(list)
-_photo_flush_tasks: dict[int, asyncio.Task] = {}
 
-# chat_id -> {content hash: seen_at} of recently processed photos, so an exact
-# resend within PHOTO_DEDUP_WINDOW_SECONDS is dropped instead of reprocessed.
-_recent_photo_hashes: dict[int, dict[str, datetime]] = defaultdict(dict)
+# chat_id -> content hashes already in the current tray, so an identical frame
+# (e.g. Telegram redelivery) isn't double-counted. Cleared on analyze/clear.
+_photo_buffer_hashes: dict[int, set[str]] = defaultdict(set)
+
+# chat_id -> message_id of the tray message, so it's edited in place rather than
+# re-sent for every new photo.
+_tray_message_ids: dict[int, int] = {}
 
 
-async def _flush_photos(chat_id: int, bot) -> None:
-    await asyncio.sleep(config.PHOTO_BATCH_WINDOW_SECONDS)
-    images = _photo_buffers.pop(chat_id, [])
-    _photo_flush_tasks.pop(chat_id, None)
-    if not images:
-        return
-    await orchestrator.process_fridge_photos(bot, chat_id, images)
+def _reset_tray(chat_id: int) -> None:
+    _photo_buffers.pop(chat_id, None)
+    _photo_buffer_hashes.pop(chat_id, None)
+    _tray_message_ids.pop(chat_id, None)
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -54,21 +57,49 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     image_bytes = bytes(await telegram_file.download_as_bytearray())
 
     digest = hashlib.sha256(image_bytes).hexdigest()
-    now = datetime.now()
-    seen = _recent_photo_hashes[chat_id]
-    for h in [h for h, t in seen.items() if (now - t).total_seconds() > config.PHOTO_DEDUP_WINDOW_SECONDS]:
-        del seen[h]
-    if digest in seen:
+    if digest in _photo_buffer_hashes[chat_id]:
         return
-    seen[digest] = now
-
+    _photo_buffer_hashes[chat_id].add(digest)
     _photo_buffers[chat_id].append(image_bytes)
 
-    existing_task = _photo_flush_tasks.get(chat_id)
-    if existing_task and not existing_task.done():
-        existing_task.cancel()
+    count = len(_photo_buffers[chat_id])
+    text = f"📸 {count} photo{'s' if count != 1 else ''} ready to analyze."
+    keyboard = keyboards.photo_tray_keyboard(count)
 
-    _photo_flush_tasks[chat_id] = asyncio.create_task(_flush_photos(chat_id, context.bot))
+    tray_message_id = _tray_message_ids.get(chat_id)
+    if tray_message_id is not None:
+        await context.bot.edit_message_text(
+            text, chat_id=chat_id, message_id=tray_message_id, reply_markup=keyboard
+        )
+    else:
+        sent = await context.bot.send_message(chat_id, text, reply_markup=keyboard)
+        _tray_message_ids[chat_id] = sent.message_id
+
+
+async def analyze_photo_tray(bot, chat_id: int) -> None:
+    images = list(_photo_buffers.get(chat_id, []))
+    tray_message_id = _tray_message_ids.get(chat_id)
+    if not images:
+        _reset_tray(chat_id)
+        await bot.send_message(chat_id, "🤔 Nothing to analyze yet — send some photos first.")
+        return
+    _reset_tray(chat_id)
+    # Drop the now-stale tray buttons before the analysis pipeline takes over.
+    if tray_message_id is not None:
+        count = len(images)
+        await bot.edit_message_text(
+            f"📸 {count} photo{'s' if count != 1 else ''} — analyzing…",
+            chat_id=chat_id,
+            message_id=tray_message_id,
+        )
+    await orchestrator.process_fridge_photos(bot, chat_id, images)
+
+
+async def clear_photo_tray(bot, chat_id: int) -> None:
+    tray_message_id = _tray_message_ids.get(chat_id)
+    _reset_tray(chat_id)
+    if tray_message_id is not None:
+        await bot.edit_message_text("🗑️ Cleared.", chat_id=chat_id, message_id=tray_message_id)
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -171,6 +202,11 @@ async def cmd_spend(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await context.bot.send_message(chat_id, text, parse_mode=ParseMode.HTML)
 
 
+async def cmd_address(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.effective_chat.id
+    await orchestrator.set_delivery_address(context.bot, chat_id)
+
+
 async def cmd_zones(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     staleness = await queries.get_all_zones_staleness()
@@ -265,11 +301,13 @@ _EXACT_ROUTES: dict[str, Callable[..., Awaitable]] = {
     keyboards.INV_CONFIRM_CANCEL: orchestrator.inventory_confirm_cancel,
     keyboards.VOICE_CONFIRM_YES: orchestrator.voice_confirm_yes,
     keyboards.VOICE_CONFIRM_RETYPE: orchestrator.voice_confirm_retype,
+    keyboards.PHOTO_ANALYZE: analyze_photo_tray,
+    keyboards.PHOTO_CLEAR: clear_photo_tray,
 }
 
 _PREFIX_ROUTES: list[tuple[str, Callable[..., Awaitable]]] = [
-    (keyboards.REMOVE_PREFIX, orchestrator.remove_item_from_cart),
     (keyboards.ZONE_PICK_PREFIX, orchestrator.zone_picked),
+    (keyboards.ADDRESS_PICK_PREFIX, orchestrator.address_picked),
     (keyboards.SERVINGS_PREFIX, orchestrator.servings_picked),
     (keyboards.GUEST_MEAL_PREFIX, orchestrator.guest_meal_picked),
 ]
@@ -290,6 +328,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         index = keyboards.parse_runlow_toggle_callback(data)
         if index is not None:
             await orchestrator.running_low_toggle(context.bot, chat_id, index, query)
+        return
+
+    # Cart-edit callbacks edit the cart message in place, so they need the query.
+    if data == keyboards.CART_EDIT_ACTION:
+        await orchestrator.show_cart_edit(context.bot, chat_id, query)
+        return
+    if data == keyboards.CART_DONE_ACTION:
+        await orchestrator.cart_edit_done(context.bot, chat_id, query)
+        return
+    if data.startswith(keyboards.REMOVE_PREFIX):
+        spin_id = data[len(keyboards.REMOVE_PREFIX) :]
+        await orchestrator.remove_item_from_cart(context.bot, chat_id, spin_id, query)
         return
 
     for prefix, handler_fn in _PREFIX_ROUTES:

@@ -29,7 +29,6 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 SWIGGY_MCP_ENDPOINT = os.getenv("SWIGGY_MCP_ENDPOINT", "https://mcp.swiggy.com/im")
 SWIGGY_ACCESS_TOKEN = os.getenv("SWIGGY_ACCESS_TOKEN")
 SWIGGY_REFRESH_TOKEN = os.getenv("SWIGGY_REFRESH_TOKEN")
-DELIVERY_ADDRESS_ID = os.getenv("DELIVERY_ADDRESS_ID")
 
 TOKEN_STORE_PATH = os.getenv("TOKEN_STORE_PATH", "token_store.json")
 
@@ -47,11 +46,3 @@ DIET_PLAN_PATH = os.path.join(
 
 # Kitchen inventory database
 DATABASE_PATH = os.getenv("DATABASE_PATH", "data/grocerybot.db")
-
-# Photo batching window (seconds) — how long to wait for additional photos
-# before running the vision pipeline on a batch.
-PHOTO_BATCH_WINDOW_SECONDS = 3
-
-# Photo dedup window (seconds) — an identical photo (by content hash) sent again
-# within this window per chat is silently dropped instead of reprocessed.
-PHOTO_DEDUP_WINDOW_SECONDS = 30

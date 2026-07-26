@@ -65,6 +65,15 @@ async def init_db() -> None:
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_inventory_zone ON inventory(zone_id)"
     )
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
     await db.commit()
 
     async with db.execute("SELECT COUNT(*) FROM zones") as cursor:

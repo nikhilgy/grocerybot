@@ -54,8 +54,10 @@ cp .env.example .env
 - `ANTHROPIC_API_KEY` — from step 2
 - `SWIGGY_MCP_ENDPOINT` — defaults to `https://mcp.swiggy.com/im`, no need to change
 - `SWIGGY_ACCESS_TOKEN` / `SWIGGY_REFRESH_TOKEN` — leave blank on first run (see below)
-- `DELIVERY_ADDRESS_ID` — leave blank until you've run `get_addresses` once (see below)
 - `DATABASE_PATH` — defaults to `data/grocerybot.db`, no need to change
+
+Your delivery address is no longer an env var — pick it in-chat with the `/address`
+command (see below), which stores your choice in the database.
 
 ## 4. Run locally
 
@@ -88,9 +90,11 @@ by default (no client ID setup needed, Dynamic Client Registration handles it).
 Tokens are then cached in `token_store.json` and refreshed automatically (~5 day
 token lifetime).
 
-Once authenticated, call `get_addresses` (e.g. via a quick script using
-`app.instamart.mcp_client.client`) to find your `address_id`, then set
-`DELIVERY_ADDRESS_ID` in `.env` and restart.
+Once authenticated, send `/address` to the bot. It lists your saved Swiggy
+addresses as buttons — tap one to set it as your delivery address. The choice is
+persisted in the database and reused for every order; run `/address` again anytime
+to change it. If you try to order before choosing an address, the bot prompts you
+once and then continues automatically with your pick.
 
 ## 5. Deploy to Railway
 
