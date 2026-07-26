@@ -2,27 +2,41 @@
 
 A personal Telegram bot that looks at photos of your fridge/pantry, figures out what's
 missing for tomorrow's meals against a diet plan, and orders the missing items from
-Swiggy Instamart via MCP. Also supports voice notes, quick text-based cart additions,
-order history, weekly spend summaries, persistent multi-zone kitchen inventory, recipe
-mode (typed, spoken, or imported from a YouTube video), and guest-count scaling.
+Swiggy Instamart via MCP. You can also just talk to it: quick text/voice cart additions,
+recipe mode (typed, spoken, or imported from a YouTube video), guest-count scaling,
+running-low nudges, inventory corrections, order history, and weekly spend summaries.
 
-Single-user, no auth. Cart state and multi-turn conversation state live in memory
-(ephemeral by design); kitchen inventory is persisted in a local SQLite database;
-the diet plan is a JSON file you edit by hand.
+Photos are batched in a per-chat "scan tray" — send as many as you like, then tap
+**Analyze** — and if the bot can't tell which zone a group of items belongs to, it asks.
+Before ordering off inventory that wasn't just freshly scanned, it shows a confirmation
+card so you can catch stale data or rescan first. Cart building always reconciles against
+what Swiggy actually accepted (items can be dropped for being out of stock or
+unserviceable), and adding something already in the cart prompts to merge or skip rather
+than silently duplicating it.
+
+Single-user, no auth. Cart state and multi-turn conversation state (the "bot asked a
+question, waiting for a reply" slot) live in memory and are ephemeral by design; kitchen
+inventory and your chosen delivery address are persisted in a local SQLite database; the
+diet plan is a JSON file you edit by hand.
 
 ## Architecture
 
 ```
-Telegram → FastAPI /webhook → handlers.py → orchestrator.py
-                                                 ├─ vision/analyzer.py      (Claude Vision: photo → per-zone inventory + stock level)
-                                                 ├─ planner/gap_analyzer.py (Claude: inventory + diet plan/recipe → shopping list)
-                                                 ├─ nlu/intent_classifier.py (Claude: text → quick_add/recipe/guest/general)
-                                                 ├─ recipes/recipe_generator.py (Claude: recipe name + servings → ingredients)
-                                                 ├─ recipes/youtube.py      (transcript extraction + Claude recipe parsing)
-                                                 ├─ db/queries.py           (SQLite: zones + inventory, persisted across scans)
-                                                 ├─ instamart/product_mapper.py (Claude + Swiggy search → best SKU match)
-                                                 ├─ instamart/cart_manager.py   (build/update/checkout cart)
-                                                 └─ instamart/mcp_client.py     (Swiggy Instamart MCP tools)
+Telegram → FastAPI /webhook → bot/handlers.py → services/orchestrator.py
+                                                      ├─ vision/analyzer.py       (Claude Vision: photo(s) → per-zone inventory + stock level)
+                                                      ├─ planner/gap_analyzer.py  (Claude: inventory + diet plan/recipe → shopping list)
+                                                      ├─ nlu/intent_classifier.py (Claude: text → quick_add/recipe/guest/inventory_query/.../general)
+                                                      ├─ nlu/correction_interpreter.py (Claude: freeform correction → new qty/stock_level)
+                                                      ├─ recipes/recipe_generator.py  (Claude: recipe name + servings → ingredients)
+                                                      ├─ recipes/youtube.py       (yt-dlp transcript extraction + Claude recipe parsing)
+                                                      ├─ db/queries.py + db/database.py (SQLite: zones, inventory, settings — persisted across scans)
+                                                      ├─ instamart/product_mapper.py (Claude + Swiggy search → best SKU match)
+                                                      ├─ instamart/cart_manager.py    (build cart, reconcile against what Swiggy actually accepted)
+                                                      └─ instamart/mcp_client.py      (Swiggy Instamart MCP tools: cart, orders, addresses, OAuth)
+
+bot/keyboards.py builds every inline keyboard (photo tray, zone/address/servings pickers,
+running-low alerts, cart edit grid, confirmations); bot/copy.py holds static help/welcome
+text; bot/voice.py downloads + transcribes voice notes via Groq Whisper.
 ```
 
 ## 1. Create the Telegram bot
@@ -128,19 +142,34 @@ redeploy/restart in production.
 - `/start` — welcome message
 - `/help` — list of commands
 - `/restock` — order everything needed for tomorrow's meals, no photo needed
+- `/address` — pick which saved Swiggy address to deliver to
 - `/history` — last 5-10 Instamart orders
 - `/spend` — weekly spend summary
 - `/zones` — list kitchen zones with last-scanned staleness
 - `/inventory [zone_id]` — combined kitchen inventory by zone, or a single zone's full list
 - `/addzone <name>` / `/removezone <zone_id>` — manage custom zones beyond the six defaults
 - `/recipe <name or YouTube link>` — cook a specific recipe
-- Send photos — analyzes each zone visible (fridge, masala rack, etc. in one batch), saves
-  to SQLite, and orders what's missing for tomorrow using inventory across all zones
-- Send a voice note — transcribed and classified the same way as text; recipe/guest
-  requests get a quick "did I hear that right?" confirmation first
+
+- Send photos — each one lands in a per-chat scan tray ("📸 N photos ready to analyze");
+  tap **Analyze** to process the whole batch at once, or **Clear** to discard it. If a
+  zone can't be confidently identified (e.g. it's genuinely unclear whether a shelf is
+  the fridge or the freezer), the bot asks before saving that group.
+- Send a voice note — transcribed via Groq Whisper, then classified the same way as
+  text; recipe/guest requests get a quick "did I hear that right?" confirmation first
 - Type "make palak paneer for 4", "6 guests for dinner tonight", or paste a YouTube
   recipe link — routed automatically
+- Ask in plain text: "what's for dinner tomorrow", "do I have milk", "what's in my
+  cart", "I actually have 500g rice now", "cancel" — all routed by intent, no command
+  needed
 - Any other text — quick add to cart (e.g. "add 1kg oats and curd")
+
+Ordering off inventory that wasn't just freshly photographed (recipe mode, YouTube
+import, guest mode, or a photo batch that didn't cover every zone) shows a confirmation
+card with per-zone staleness first — **Looks right, order** / **Let me rescan first** /
+**Cancel**. Any items running low or critical after a scan get a separate nudge —
+**Add all**, **Pick items**, or **Skip**. Once a cart exists, **Edit items** removes
+items one at a time, and adding something already in the cart offers to merge the extra
+quantity in or skip it.
 
 ## Kitchen zones & inventory (SQLite)
 
